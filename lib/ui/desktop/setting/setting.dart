@@ -22,7 +22,6 @@ import 'package:proxypin/network/components/manager/request_block_manager.dart';
 import 'package:proxypin/network/util/system_proxy.dart';
 import 'package:proxypin/ui/component/multi_window.dart';
 import 'package:proxypin/ui/component/proxy_port_setting.dart';
-import 'package:proxypin/ui/component/widgets.dart';
 import 'package:proxypin/ui/desktop/setting/about.dart';
 import 'package:proxypin/ui/desktop/setting/external_proxy.dart';
 import 'package:proxypin/ui/desktop/setting/hosts.dart';
@@ -60,6 +59,11 @@ class _SettingState extends State<Setting> {
         return IconButton(
             icon: const Icon(Icons.settings, size: 21),
             tooltip: localizations.setting,
+            style: IconButton.styleFrom(
+              backgroundColor: controller.isOpen
+                  ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5)
+                  : null,
+            ),
             onPressed: () {
               if (controller.isOpen) {
                 controller.close();
@@ -68,28 +72,55 @@ class _SettingState extends State<Setting> {
               }
             });
       },
+      style: MenuStyle(
+        shape: MaterialStateProperty.all(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        elevation: MaterialStateProperty.all(4),
+      ),
       menuChildren: [
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Text(
+            localizations.setting,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ),
+        const Divider(height: 1),
         _ProxyMenu(proxyServer: widget.proxyServer),
-        item(localizations.domainFilter, onPressed: hostFilter),
-        item(localizations.hosts, onPressed: hosts),
-        item(localizations.requestBlock, onPressed: showRequestBlock),
-        item(localizations.requestRewrite, onPressed: requestRewrite),
-        item(localizations.requestMap, onPressed: requestMap),
+        const Divider(height: 1, thickness: 0.5),
+        item(localizations.domainFilter, icon: Icons.filter_list, onPressed: hostFilter),
+        item(localizations.hosts, icon: Icons.dns, onPressed: hosts),
+        item(localizations.requestBlock, icon: Icons.block, onPressed: showRequestBlock),
+        item(localizations.requestRewrite, icon: Icons.edit, onPressed: requestRewrite),
+        item(localizations.requestMap, icon: Icons.map, onPressed: requestMap),
         item(localizations.script,
+            icon: Icons.code,
             onPressed: () => MultiWindow.openWindow(localizations.script, 'ScriptWidget', size: const Size(800, 700))),
-        item(localizations.externalProxy, onPressed: setExternalProxy),
-        item(localizations.about, onPressed: showAbout),
+        item(localizations.externalProxy, icon: Icons.vpn_lock, onPressed: setExternalProxy),
+        const Divider(height: 1, thickness: 0.5),
+        item(localizations.about, icon: Icons.info_outline, onPressed: showAbout),
       ],
     );
   }
 
-  Widget item(String text, {VoidCallback? onPressed}) {
+  Widget item(String text, {IconData? icon, VoidCallback? onPressed}) {
     return MenuItemButton(
-        trailingIcon: const Icon(Icons.arrow_right),
+        style: ButtonStyle(
+          padding: MaterialStateProperty.all(
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          ),
+        ),
+        leadingIcon: icon != null
+            ? Icon(icon, size: 18)
+            : null,
+        trailingIcon: const Icon(Icons.arrow_right, size: 18),
         onPressed: onPressed,
-        child: Padding(
-            padding: const EdgeInsets.only(left: 10, right: 5),
-            child: Text(text, style: const TextStyle(fontSize: 14))));
+        child: Text(text, style: const TextStyle(fontSize: 14)));
   }
 
   void showAbout() {
@@ -185,103 +216,151 @@ class _ProxyMenuState extends State<_ProxyMenu> {
   @override
   Widget build(BuildContext context) {
     return SubmenuButton(
+      style: ButtonStyle(
+        padding: MaterialStateProperty.all(
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        ),
+      ),
+      leadingIcon: Icon(Icons.router, size: 18, color: Theme.of(context).colorScheme.primary),
       menuChildren: [
-        PortWidget(proxyServer: widget.proxyServer, textStyle: const TextStyle(fontSize: 13)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: PortWidget(proxyServer: widget.proxyServer, textStyle: const TextStyle(fontSize: 13)),
+        ),
         const Divider(thickness: 0.3, height: 8),
-        setSystemProxy(),
+        _SwitchRow(
+          icon: Icons.power_settings_new,
+          label: localizations.systemProxy,
+          value: configuration.enableSystemProxy,
+          onChanged: (val) {
+            widget.proxyServer.setSystemProxyEnable(val);
+            configuration.enableSystemProxy = val;
+            setState(() {
+              changed = true;
+            });
+          },
+        ),
         const Divider(thickness: 0.3, height: 8),
-        Row(children: [
-          Expanded(
-              child: Padding(
-                  padding: const EdgeInsets.only(left: 15),
-                  child: Text("SOCKS5", style: const TextStyle(fontSize: 14)))),
-          SwitchWidget(
-              value: configuration.enableSocks5,
-              scale: 0.75,
-              onChanged: (val) {
-                configuration.enableSocks5 = val;
-                changed = true;
-              }),
-          SizedBox(width: 10)
-        ]),
+        _SwitchRow(
+          icon: Icons.security,
+          label: "SOCKS5",
+          value: configuration.enableSocks5,
+          onChanged: (val) {
+            configuration.enableSocks5 = val;
+            changed = true;
+          },
+        ),
         const Divider(thickness: 0.3, height: 8),
-        Row(children: [
-          Expanded(
-              child: Padding(
-                  padding: const EdgeInsets.only(left: 15),
-                  child: Text(localizations.enabledHTTP2, style: const TextStyle(fontSize: 14)))),
-          SwitchWidget(
-              value: configuration.enabledHttp2,
-              scale: 0.75,
-              onChanged: (val) {
-                configuration.enabledHttp2 = val;
-                changed = true;
-              }),
-          SizedBox(width: 10)
-        ]),
+        _SwitchRow(
+          icon: Icons.http,
+          label: localizations.enabledHTTP2,
+          value: configuration.enabledHttp2,
+          onChanged: (val) {
+            configuration.enabledHttp2 = val;
+            changed = true;
+          },
+        ),
         const Divider(thickness: 0.3, height: 8),
         const SizedBox(height: 3),
         Padding(
-            padding: const EdgeInsets.only(left: 15),
+            padding: const EdgeInsets.symmetric(horizontal: 15),
             child: Row(children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(localizations.proxyIgnoreDomain, style: const TextStyle(fontSize: 14)),
+                  Row(
+                    children: [
+                      Icon(Icons.block, size: 16, color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Text(localizations.proxyIgnoreDomain, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                    ],
+                  ),
                   const SizedBox(height: 3),
                   Text("多个使用;分割", style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                 ],
               ),
-              Padding(
-                  padding: const EdgeInsets.only(left: 35),
-                  child: TextButton(
-                    child: Text(localizations.reset),
-                    onPressed: () {
-                      textEditingController.text = SystemProxy.proxyPassDomains;
-                    },
-                  ))
+              const Spacer(),
+              TextButton.icon(
+                icon: const Icon(Icons.refresh, size: 16),
+                label: Text(localizations.reset),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                onPressed: () {
+                  textEditingController.text = SystemProxy.proxyPassDomains;
+                },
+              ),
             ])),
-        const SizedBox(height: 5),
+        const SizedBox(height: 8),
         Padding(
-            padding: const EdgeInsets.only(left: 15, right: 5),
-            child: TextField(
-                textInputAction: TextInputAction.done,
-                style: const TextStyle(fontSize: 13),
-                controller: textEditingController,
-                decoration: const InputDecoration(
-                    contentPadding: EdgeInsets.all(10),
-                    border: OutlineInputBorder(),
-                    constraints: BoxConstraints(minWidth: 190, maxWidth: 190)),
-                maxLines: 5,
-                minLines: 1)),
+            padding: const EdgeInsets.symmetric(horizontal: 15),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: TextField(
+                  textInputAction: TextInputAction.done,
+                  style: const TextStyle(fontSize: 13),
+                  controller: textEditingController,
+                  decoration: const InputDecoration(
+                      contentPadding: EdgeInsets.all(12),
+                      border: InputBorder.none,
+                      constraints: BoxConstraints(minWidth: 190, maxWidth: 190)),
+                  maxLines: 5,
+                  minLines: 1),
+            )),
         const SizedBox(height: 10),
       ],
       child: Padding(
-          padding: const EdgeInsets.only(left: 10),
+          padding: const EdgeInsets.only(left: 0),
           child: Text(localizations.proxy, style: const TextStyle(fontSize: 14))),
     );
   }
+}
 
-  ///设置系统代理
-  Widget setSystemProxy() {
-    return Row(children: [
-      Expanded(
-          child: Padding(
-              padding: const EdgeInsets.only(left: 15, right: 20),
-              child: Text(localizations.systemProxy, style: const TextStyle(fontSize: 14)))),
-      Transform.scale(
-          scale: 0.75,
-          child: Switch(
-              hoverColor: Colors.transparent,
-              value: configuration.enableSystemProxy,
+class _SwitchRow extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _SwitchRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  State<_SwitchRow> createState() => _SwitchRowState();
+}
+
+class _SwitchRowState extends State<_SwitchRow> {
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 4),
+      child: Row(
+        children: [
+          Icon(widget.icon, size: 16, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(widget.label, style: const TextStyle(fontSize: 14)),
+          ),
+          Transform.scale(
+            scale: 0.75,
+            child: Switch(
+              value: widget.value,
               onChanged: (val) {
-                widget.proxyServer.setSystemProxyEnable(val);
-                configuration.enableSystemProxy = val;
-                setState(() {
-                  changed = true;
-                });
-              })),
-      SizedBox(width: 10)
-    ]);
+                widget.onChanged(val);
+                setState(() {});
+              },
+            ),
+          ),
+          const SizedBox(width: 5),
+        ],
+      ),
+    );
   }
 }

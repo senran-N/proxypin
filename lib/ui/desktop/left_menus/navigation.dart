@@ -57,6 +57,10 @@ class _LeftNavigationBarState extends State<LeftNavigationBar> {
             padding: const EdgeInsets.only(bottom: 5),
             icon: Icon(Icons.hardware_outlined),
             label: Text(localizations.toolbox, style: Theme.of(context).textTheme.bodySmall)),
+        NavigationRailDestination(
+            padding: const EdgeInsets.only(bottom: 5),
+            icon: const Icon(Icons.smart_toy_outlined),
+            label: Text('AI', style: Theme.of(context).textTheme.bodySmall)),
       ];
 
   @override

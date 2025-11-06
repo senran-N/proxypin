@@ -40,6 +40,7 @@ import 'package:proxypin/utils/listenable_list.dart';
 import '../app_update/app_update_repository.dart';
 import '../component/split_view.dart';
 import '../toolbox/toolbox.dart';
+import '../ai/ai_chat.dart';
 
 /// @author wanghongen
 /// 2023/10/8
@@ -108,7 +109,12 @@ class _DesktopHomePagePageState extends State<DesktopHomePage> implements EventL
       DesktopRequestListWidget(key: requestListStateKey, proxyServer: proxyServer, list: container, panel: panel),
       Favorites(panel: panel),
       HistoryPageWidget(proxyServer: proxyServer, container: container, panel: panel),
-      const Toolbox()
+      const Toolbox(),
+      AIChatPage(
+        proxyServer: proxyServer,
+        getCurrentView: () => requestListStateKey.currentState?.currentView() ?? <HttpRequest>[],
+        getAllRequests: () => requestListStateKey.currentState?.container.source ?? <HttpRequest>[],
+      ),
     ];
 
     return Scaffold(

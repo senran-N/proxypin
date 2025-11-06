@@ -61,6 +61,7 @@ class Header {
 
 /// A stateful HPACK decoder.
 class HPackDecoder {
+  // ignore: unused_field
   int _maxHeaderTableSize = 4096;
 
   final IndexTable _table = IndexTable();

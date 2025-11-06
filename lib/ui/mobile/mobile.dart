@@ -34,6 +34,7 @@ import 'package:proxypin/network/http/websocket.dart';
 import 'package:proxypin/network/http/http_client.dart';
 import 'package:proxypin/ui/component/memory_cleanup.dart';
 import 'package:proxypin/ui/toolbox/toolbox.dart';
+import 'package:proxypin/ui/ai/ai_chat.dart';
 import 'package:proxypin/ui/configuration.dart';
 import 'package:proxypin/ui/content/panel.dart';
 import 'package:proxypin/ui/launch/launch.dart';
@@ -136,6 +137,7 @@ class MobileHomeState extends State<MobileHomePage> implements EventListener, Li
 
   var requestPageNavigatorKey = GlobalKey<NavigatorState>();
   var toolboxNavigatorKey = GlobalKey<NavigatorState>();
+  var aiNavigatorKey = GlobalKey<NavigatorState>();
   var configNavigatorKey = GlobalKey<NavigatorState>();
   var settingNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -155,6 +157,15 @@ class MobileHomeState extends State<MobileHomePage> implements EventListener, Li
                           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
                       centerTitle: true)),
               body: Toolbox(proxyServer: proxyServer))),
+      // AI page inserted between Toolbox and Config
+      NavigatorPage(
+          navigatorKey: aiNavigatorKey,
+          child: AIChatPage(
+            proxyServer: proxyServer,
+            getCurrentView: () =>
+                (MobileApp.requestStateKey.currentState?.currentView()?.toList()) ?? <HttpRequest>[],
+            getAllRequests: () => (MobileApp.requestStateKey.currentState?.container.source) ?? <HttpRequest>[],
+          )),
       NavigatorPage(navigatorKey: configNavigatorKey, child: ConfigPage(proxyServer: proxyServer)),
       NavigatorPage(
           navigatorKey: settingNavigatorKey,
@@ -218,6 +229,10 @@ class MobileHomeState extends State<MobileHomePage> implements EventListener, Li
                                   tooltip: localizations.toolbox,
                                   icon: const Icon(Icons.hardware_outlined),
                                   label: localizations.toolbox),
+                              BottomNavigationBarItem(
+                                  tooltip: 'AI',
+                                  icon: const Icon(Icons.smart_toy_outlined),
+                                  label: 'AI'),
                               BottomNavigationBarItem(
                                   tooltip: localizations.config,
                                   icon: const Icon(Icons.description_outlined),
@@ -377,7 +392,11 @@ class RequestPageState extends State<RequestPage> {
         appBar: _MobileAppBar(widget.appConfiguration, proxyServer, remoteDevice: remoteDevice),
         drawer: widget.appConfiguration.bottomNavigation
             ? null
-            : DrawerWidget(proxyServer: proxyServer, container: MobileApp.container),
+            : DrawerWidget(
+                proxyServer: proxyServer,
+                container: MobileApp.container,
+                getCurrentView: () =>
+                    (MobileApp.requestStateKey.currentState?.currentView()?.toList()) ?? <HttpRequest>[]),
         floatingActionButton: _launchActionButton(),
         body: ValueListenableBuilder(
             valueListenable: remoteDevice,

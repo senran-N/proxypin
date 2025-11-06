@@ -54,13 +54,34 @@ class _PreferenceState extends State<Preference> {
     final borderColor = Theme.of(context).dividerColor.withValues(alpha: 0.13);
     final dividerColor = Theme.of(context).dividerColor.withValues(alpha: 0.22);
 
-    Widget section(List<Widget> tiles) => Card(
-          color: Colors.transparent,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-              side: BorderSide(color: borderColor),
-              borderRadius: BorderRadius.circular(10)),
-          child: Column(children: tiles),
+    Widget section(List<Widget> tiles, {String? title}) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (title != null) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.primary,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+            Card(
+              margin: const EdgeInsets.symmetric(horizontal: 12),
+              elevation: 0,
+              color: Theme.of(context).colorScheme.surface,
+              shape: RoundedRectangleBorder(
+                side: BorderSide(color: borderColor),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(children: tiles),
+            ),
+          ],
         );
 
     return Scaffold(
@@ -70,21 +91,50 @@ class _PreferenceState extends State<Preference> {
           children: [
             section([
               ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.language, size: 20, color: Theme.of(context).colorScheme.primary),
+                ),
                 title: Text(localizations.language),
                 trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                 onTap: () => _language(context),
               ),
               Divider(height: 0, thickness: 0.3, color: dividerColor),
-              MobileThemeSetting(appConfiguration: appConfiguration),
-              Divider(height: 0, thickness: 0.3, color: dividerColor),
-              ListTile(title: Text(localizations.themeColor)),
               Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: MobileThemeSetting(appConfiguration: appConfiguration),
+              ),
+              Divider(height: 0, thickness: 0.3, color: dividerColor),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.palette, size: 20, color: Theme.of(context).colorScheme.primary),
+                ),
+                title: Text(localizations.themeColor),
+              ),
+              Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                   child: themeColor(context)),
-            ]),
-            const SizedBox(height: 12),
+            ], title: '外观设置'),
+            const SizedBox(height: 16),
             section([
               ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.secondaryContainer.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.start, size: 20, color: Theme.of(context).colorScheme.secondary),
+                  ),
                   title: Text(localizations.autoStartup),
                   subtitle: Text(localizations.autoStartupDescribe, style: const TextStyle(fontSize: 12)),
                   trailing: SwitchWidget(
@@ -97,6 +147,14 @@ class _PreferenceState extends State<Preference> {
               Divider(height: 0, thickness: 0.3, color: dividerColor),
               if (Platform.isAndroid) ...[
                 ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.secondaryContainer.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(Icons.picture_in_picture, size: 20, color: Theme.of(context).colorScheme.secondary),
+                    ),
                     title: Text(localizations.windowMode),
                     subtitle: Text(localizations.windowModeSubTitle, style: const TextStyle(fontSize: 12)),
                     trailing: SwitchWidget(
@@ -109,6 +167,14 @@ class _PreferenceState extends State<Preference> {
                 Divider(height: 0, thickness: 0.3, color: dividerColor),
               ],
               ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.secondaryContainer.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.fullscreen, size: 20, color: Theme.of(context).colorScheme.secondary),
+                  ),
                   title: Text(localizations.pipIcon),
                   subtitle: Text(localizations.pipIconDescribe, style: const TextStyle(fontSize: 12)),
                   trailing: SwitchWidget(
@@ -120,6 +186,14 @@ class _PreferenceState extends State<Preference> {
                       })),
               Divider(height: 0, thickness: 0.3, color: dividerColor),
               ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.secondaryContainer.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.expand, size: 20, color: Theme.of(context).colorScheme.secondary),
+                  ),
                   title: Text(localizations.headerExpanded),
                   subtitle: Text(localizations.headerExpandedSubtitle, style: const TextStyle(fontSize: 12)),
                   trailing: SwitchWidget(
@@ -131,6 +205,14 @@ class _PreferenceState extends State<Preference> {
                       })),
               Divider(height: 0, thickness: 0.3, color: dividerColor),
               ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.secondaryContainer.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.navigation, size: 20, color: Theme.of(context).colorScheme.secondary),
+                  ),
                   title: Text(localizations.bottomNavigation),
                   subtitle: Text(localizations.bottomNavigationSubtitle, style: const TextStyle(fontSize: 12)),
                   trailing: SwitchWidget(
@@ -140,39 +222,78 @@ class _PreferenceState extends State<Preference> {
                         appConfiguration.bottomNavigation = value;
                         appConfiguration.flushConfig();
                       })),
-            ]),
-            const SizedBox(height: 12),
+            ], title: '应用设置'),
+            const SizedBox(height: 16),
             section([
               ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.tertiaryContainer.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.memory, size: 20, color: Theme.of(context).colorScheme.tertiary),
+                  ),
                   title: Text(localizations.memoryCleanup),
                   subtitle: Text(localizations.memoryCleanupSubtitle, style: const TextStyle(fontSize: 12)),
                   trailing: memoryCleanup(context, localizations)),
-            ]),
+            ], title: '性能设置'),
             const SizedBox(height: 15),
           ],
         ));
   }
 
   Widget themeColor(BuildContext context) {
-    return Wrap(
-      children: ColorMapping.colors.entries.map((pair) {
-        var dividerColor = Theme.of(context).focusColor;
-        var background = appConfiguration.themeColor == pair.value ? dividerColor : Colors.transparent;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: ColorMapping.colors.entries.map((pair) {
+          var isSelected = appConfiguration.themeColor == pair.value;
 
-        return GestureDetector(
+          return GestureDetector(
             onTap: () => appConfiguration.setThemeColor = pair.key,
             child: Tooltip(
               message: pair.key,
-              child: Container(
-                margin: const EdgeInsets.all(4.0),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
-                  color: background,
-                  border: Border.all(color: Colors.transparent, width: 8),
+                  color: isSelected ? pair.value.withOpacity(0.2) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isSelected ? pair.value : Colors.transparent,
+                    width: 2,
+                  ),
                 ),
-                child: Dot(color: pair.value, size: 15),
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: pair.value,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: pair.value.withOpacity(0.4),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: isSelected
+                      ? Icon(Icons.check, color: Colors.white, size: 20)
+                      : null,
+                ),
               ),
-            ));
-      }).toList(),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 
@@ -183,47 +304,77 @@ class _PreferenceState extends State<Preference> {
         context: context,
         builder: (context) {
           return AlertDialog(
-            contentPadding: const EdgeInsets.only(left: 5, top: 5),
-            actionsPadding: const EdgeInsets.only(bottom: 5, right: 5),
-            title: Text(localizations.language, style: const TextStyle(fontSize: 16)),
-            content: Wrap(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
               children: [
-                TextButton(
-                    onPressed: () {
-                      appConfiguration.language = null;
-                      Navigator.of(context).pop();
-                    },
-                    child: Text(localizations.followSystem)),
-                const Divider(thickness: 0.5, height: 0),
-                TextButton(
-                    onPressed: () {
-                      appConfiguration.language = const Locale.fromSubtags(languageCode: 'zh');
-                      Navigator.of(context).pop();
-                    },
-                    child: const Text("简体中文")),
-                const Divider(thickness: 0.5, height: 0),
-                TextButton(
-                    onPressed: () {
-                      appConfiguration.language = const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant');
-                      Navigator.of(context).pop();
-                    },
-                    child: const Text("繁體中文")),
-                const Divider(thickness: 0.5, height: 0),
-                TextButton(
-                    child: const Text("English"),
-                    onPressed: () {
-                      appConfiguration.language = const Locale.fromSubtags(languageCode: 'en');
-                      Navigator.of(context).pop();
-                    }),
-                const Divider(thickness: 0.5),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.language,
+                    size: 20,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(localizations.language, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+              ],
+            ),
+            contentPadding: const EdgeInsets.symmetric(vertical: 8),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _LanguageOption(
+                  label: localizations.followSystem,
+                  icon: Icons.phone_android,
+                  onTap: () {
+                    appConfiguration.language = null;
+                    Navigator.of(context).pop();
+                  },
+                ),
+                const Divider(height: 1),
+                _LanguageOption(
+                  label: "简体中文",
+                  icon: Icons.translate,
+                  onTap: () {
+                    appConfiguration.language = const Locale.fromSubtags(languageCode: 'zh');
+                    Navigator.of(context).pop();
+                  },
+                ),
+                const Divider(height: 1),
+                _LanguageOption(
+                  label: "繁體中文",
+                  icon: Icons.translate,
+                  onTap: () {
+                    appConfiguration.language = const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant');
+                    Navigator.of(context).pop();
+                  },
+                ),
+                const Divider(height: 1),
+                _LanguageOption(
+                  label: "English",
+                  icon: Icons.translate,
+                  onTap: () {
+                    appConfiguration.language = const Locale.fromSubtags(languageCode: 'en');
+                    Navigator.of(context).pop();
+                  },
+                ),
               ],
             ),
             actions: [
               TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  child: Text(localizations.cancel)),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: Text(localizations.cancel),
+              ),
             ],
           );
         });
@@ -290,4 +441,39 @@ class DropdownMenuInputItem extends DropdownMenuItem<int> {
   int? get value => int.tryParse(controller.text) ?? 0;
 
   const DropdownMenuInputItem({super.key, required this.controller, required super.child});
+}
+
+class _LanguageOption extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _LanguageOption({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(fontSize: 15),
+              ),
+            ),
+            Icon(Icons.arrow_forward_ios, size: 14, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),
+          ],
+        ),
+      ),
+    );
+  }
 }

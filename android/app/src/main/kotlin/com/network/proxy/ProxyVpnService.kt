@@ -109,10 +109,12 @@ class ProxyVpnService : VpnService(), ProtectSocket {
             disconnect()
             START_NOT_STICKY
         } else {
-            val proxyHost = intent.getStringExtra(PROXY_HOST_KEY) ?: (host ?: "127.0.0.1")
-            val proxyPort = intent.getIntExtra(PROXY_PORT_KEY, port)
-            val allowPackages = intent.getStringArrayListExtra(ALLOW_APPS_KEY) ?: allowApps ?: ArrayList()
-            val disallowPackages = intent.getStringArrayListExtra(DISALLOW_APPS_KEY) ?: disallowApps ?: ArrayList()
+            val proxyHost = intent?.getStringExtra(PROXY_HOST_KEY) ?: (host ?: "127.0.0.1")
+            val proxyPort = intent?.getIntExtra(PROXY_PORT_KEY, port) ?: port
+            val allowPackages = intent?.getStringArrayListExtra(ALLOW_APPS_KEY) ?: allowApps
+                ?: ArrayList()
+            val disallowPackages = intent?.getStringArrayListExtra(DISALLOW_APPS_KEY) ?: disallowApps
+                ?: ArrayList()
             connect(proxyHost, proxyPort, allowPackages, disallowPackages)
             START_STICKY
         }

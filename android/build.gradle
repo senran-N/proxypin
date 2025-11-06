@@ -1,5 +1,8 @@
 allprojects {
     repositories {
+        // Mirrors to improve availability in restricted networks
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
         google()
         mavenCentral()
     }

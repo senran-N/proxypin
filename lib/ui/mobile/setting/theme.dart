@@ -26,41 +26,100 @@ class MobileThemeSetting extends StatelessWidget {
   Widget build(BuildContext context) {
     AppLocalizations localizations = AppLocalizations.of(context)!;
 
-    return PopupMenuButton(
+    return PopupMenuButton<int>(
         tooltip: appConfiguration.themeMode.name,
         surfaceTintColor: Theme.of(context).colorScheme.onPrimary,
         offset: const Offset(150, 0),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         itemBuilder: (BuildContext context) {
-          return [
-            PopupMenuItem(
-                child: Tooltip(
-                    preferBelow: false,
-                    message: localizations.material3,
-                    child: SwitchListTile(
-                      value: appConfiguration.useMaterial3,
-                      onChanged: (bool value) {
-                        appConfiguration.useMaterial3 = value;
-                        Navigator.of(context).pop();
-                      },
-                      dense: true,
-                      title: const Text("Material3"),
-                    ))),
-            PopupMenuItem(
-                child:
-                    ListTile(trailing: const Icon(Icons.cached), dense: true, title: Text(localizations.followSystem)),
-                onTap: () => appConfiguration.themeMode = ThemeMode.system),
-            PopupMenuItem(
-                child: ListTile(trailing: const Icon(Icons.sunny), dense: true, title: Text(localizations.themeLight)),
-                onTap: () => appConfiguration.themeMode = ThemeMode.light),
-            PopupMenuItem(
-                child: ListTile(
-                    trailing: const Icon(Icons.nightlight_outlined), dense: true, title: Text(localizations.themeDark)),
-                onTap: () => appConfiguration.themeMode = ThemeMode.dark),
+          return <PopupMenuEntry<int>>[
+            PopupMenuItem<int>(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Tooltip(
+                preferBelow: false,
+                message: localizations.material3,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: SwitchListTile(
+                    value: appConfiguration.useMaterial3,
+                    onChanged: (bool value) {
+                      appConfiguration.useMaterial3 = value;
+                      Navigator.of(context).pop();
+                    },
+                    dense: true,
+                    title: const Text("Material3", style: TextStyle(fontSize: 14)),
+                  ),
+                ),
+              ),
+            ),
+            const PopupMenuDivider(height: 8),
+            PopupMenuItem<int>(
+              child: ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.cached, size: 18),
+                ),
+                dense: true,
+                title: Text(localizations.followSystem, style: const TextStyle(fontSize: 14)),
+              ),
+              onTap: () => appConfiguration.themeMode = ThemeMode.system,
+            ),
+            PopupMenuItem<int>(
+              child: ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.sunny, size: 18),
+                ),
+                dense: true,
+                title: Text(localizations.themeLight, style: const TextStyle(fontSize: 14)),
+              ),
+              onTap: () => appConfiguration.themeMode = ThemeMode.light,
+            ),
+            PopupMenuItem<int>(
+              child: ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.nightlight_outlined, size: 18),
+                ),
+                dense: true,
+                title: Text(localizations.themeDark, style: const TextStyle(fontSize: 14)),
+              ),
+              onTap: () => appConfiguration.themeMode = ThemeMode.dark,
+            ),
           ];
         },
         child: ListTile(
           title: Text(localizations.theme),
-          trailing: getIcon(),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: getIcon(),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.arrow_drop_down, size: 20),
+            ],
+          ),
         ));
   }
 

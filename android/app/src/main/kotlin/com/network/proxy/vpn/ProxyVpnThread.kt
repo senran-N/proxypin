@@ -60,29 +60,45 @@ class ProxyVpnThread(
             try {
                 val length = vpnReadChannel.read(readBuffer)
 
-                if (length > 0) {
-                    try {
-                        readBuffer.flip()
-                        handler.handlePacket(readBuffer)
-                    } catch (e: Exception) {
-                        val errorMessage = (e.message ?: e.toString())
-                        Log.e(TAG, errorMessage, e)
+                when {
+                    length > 0 -> {
+                        try {
+                            readBuffer.flip()
+                            handler.handlePacket(readBuffer)
+                        } catch (e: Exception) {
+                            val errorMessage = (e.message ?: e.toString())
+                            Log.e(TAG, errorMessage, e)
+                        } finally {
+                            readBuffer.clear()
+                        }
                     }
-
-                    readBuffer.clear()
-                } else {
-                    sleep(50)
+                    length == 0 -> {
+                        // No data available; yield briefly
+                        sleep(50)
+                    }
+                    else -> {
+                        // length == -1: EOF, underlying FD closed
+                        Log.i(TAG, "VPN read EOF, channel closed")
+                        running = false
+                        break
+                    }
                 }
             } catch (e: InterruptedException) {
                 Log.i(TAG, "Sleep interrupted: " + e.message)
             } catch (e: InterruptedIOException) {
                 Log.i(TAG, "Read interrupted: " + e.message)
+            } catch (e: java.io.IOException) {
+                // Typical when ParcelFileDescriptor is closed: Bad file descriptor
+                Log.e(TAG, e.message ?: e.toString(), e)
+                running = false
+                break
             } catch (e: Exception) {
                 val errorMessage = (e.message ?: e.toString())
                 Log.e(TAG, errorMessage, e)
                 if (!vpnReadChannel.isOpen) {
                     Log.i(TAG, "VPN read channel closed")
                     running = false
+                    break
                 }
             }
         }
@@ -100,6 +116,8 @@ class ProxyVpnThread(
             vpnPacketWriter.shutdown()
             vpnPacketWriterThread.interrupt()
             currentThread?.interrupt()
+            try { vpnReadChannel.close() } catch (_: Exception) {}
+            try { vpnWriteStream.close() } catch (_: Exception) {}
         }
     }
 

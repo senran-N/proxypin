@@ -24,6 +24,7 @@ import 'package:proxypin/network/components/manager/request_rewrite_manager.dart
 import 'package:proxypin/network/http/http.dart';
 import 'package:proxypin/storage/histories.dart';
 import 'package:proxypin/ui/mobile/setting/request_map.dart';
+import 'package:proxypin/ui/ai/ai_chat.dart';
 import 'package:proxypin/ui/toolbox/toolbox.dart';
 import 'package:proxypin/ui/component/utils.dart';
 import 'package:proxypin/ui/configuration.dart';
@@ -44,8 +45,9 @@ class DrawerWidget extends StatelessWidget {
   final ProxyServer proxyServer;
   final ListenableList<HttpRequest> container;
   final HistoryTask historyTask;
+  final List<HttpRequest> Function()? getCurrentView;
 
-  DrawerWidget({super.key, required this.proxyServer, required this.container})
+  DrawerWidget({super.key, required this.proxyServer, required this.container, this.getCurrentView})
       : historyTask = HistoryTask.ensureInstance(proxyServer.configuration, container);
 
   @override
@@ -99,6 +101,17 @@ class DrawerWidget extends StatelessWidget {
                         return Scaffold(
                             appBar: AppBar(title: Text(localizations.toolbox), centerTitle: true),
                             body: Toolbox(proxyServer: proxyServer));
+                      }),
+                    )),
+            ListTile(
+                leading: const Icon(Icons.smart_toy_outlined),
+                title: const Text('AI'),
+                onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (BuildContext context) {
+                        return AIChatPage(
+                            proxyServer: proxyServer,
+                            getCurrentView: () => (getCurrentView?.call()) ?? <HttpRequest>[],
+                            getAllRequests: () => container.source);
                       }),
                     )),
             ListTile(
