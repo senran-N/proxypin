@@ -547,7 +547,7 @@ Tool Usage Policy
 Rewrite Rules (Very Important)
 - Only modify the original message body. Do NOT invent a whole new body. Prefer update rules: type = requestUpdate/responseUpdate with items.type = updateBody using a precise regex 'key' and a 'value' replacement.
 - When the user provides the original body text, derive a minimal regex from the exact snippet to change (escape special chars) and set 'value' to the updated snippet.
-- Headers: use updateHeader with a specific '^Header-Name:.*$' key and 'Header-Name: new' value; use addHeader/removeHeader as needed. Avoid full header replacement unless explicitly asked.
+- Headers: use updateHeader with a specific '^Header-Name:.*\$' key and 'Header-Name: new' value; use addHeader/removeHeader as needed. Avoid full header replacement unless explicitly asked.
 - Status code: include it only when the user asks; provide 'statusCode' to enable it. It will be applied even in update mode.
 - Idempotent: if a rule for the same url/type already exists, update it rather than creating duplicates.
 
@@ -573,7 +573,6 @@ Operational Guidance
     for (int step = 0; step < 8; step++) {
       if (_settings.enableTools) {
         // Prefer streaming with tools; fallback to non-stream (with tools), then without tools
-        bool streamedOk = false;
         try {
           String streamed = '';
           final Map<int, Map<String, String>> pending = {};
@@ -641,7 +640,6 @@ Operational Guidance
           if (streamed.trim().isNotEmpty) {
             await _autoCreateScriptFromContent(streamed);
           }
-          streamedOk = true;
           if (toolCalls.isEmpty) break;
           for (var i = 0; i < toolCalls.length; i++) {
             final tc = toolCalls[i];
@@ -1230,8 +1228,8 @@ Operational Guidance
         // Normalize items to expected {enabled, type, values:{...}} shape and expand convenience fields
         String _canonType(String s, RuleType ruleType) {
           final x = s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-          bool isResp = ruleType == RuleType.responseReplace || ruleType == RuleType.responseUpdate;
-          bool isReq = ruleType == RuleType.requestReplace || ruleType == RuleType.requestUpdate;
+          // bool isResp = ruleType == RuleType.responseReplace || ruleType == RuleType.responseUpdate;
+          // bool isReq = ruleType == RuleType.requestReplace || ruleType == RuleType.requestUpdate;
           if (x.contains('responsestatus') || x == 'status' || x == 'setstatus' || x == 'statuscode' || x == 'setstatuscode') {
             return 'replaceResponseStatus';
           }
@@ -1251,7 +1249,7 @@ Operational Guidance
         bool wantsUpdate = false;
         for (final raw in itemsAny) {
           if (raw is! Map) continue;
-          final m = Map<String, dynamic>.from(raw as Map);
+          final m = Map<String, dynamic>.from(raw);
           // type
           final tRaw = (m['type'] as String?) ?? '';
           final t = _canonType(tRaw, type);
