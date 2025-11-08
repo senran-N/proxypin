@@ -85,9 +85,11 @@ class AITools {
     required String urlPattern,
     required RuleType type,
     required List<RewriteItem> items,
+    String? name,
+    bool enabled = true,
   }) async {
     final mgr = await RequestRewriteManager.instance;
-    final rule = RequestRewriteRule(url: urlPattern, type: type);
+    final rule = RequestRewriteRule(url: urlPattern, type: type, name: name, enabled: enabled);
     await mgr.addRule(rule, items);
     await mgr.flushRequestRewriteConfig();
   }

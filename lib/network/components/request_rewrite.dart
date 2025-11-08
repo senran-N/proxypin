@@ -280,16 +280,31 @@ class RequestRewriteInterceptor extends Interceptor {
         message.body = await FileRead.readFile(item.bodyFile!);
         message.headers.contentLength = message.body!.length;
         message.headers.remove(HttpHeaders.CONTENT_ENCODING);
+        // Keep existing content-type when replacing by file
         return;
       }
 
       if (item.body != null) {
-        message.body =
-            message.charset == 'utf-8' || message.charset == 'utf8' ? utf8.encode(item.body!) : item.body?.codeUnits;
+        // Prefer UTF-8 for text replacement to avoid mojibake
+        final text = item.body!;
+        message.body = utf8.encode(text);
         message.headers.contentLength = message.body!.length;
         message.headers.remove(HttpHeaders.CONTENT_ENCODING);
+        // Set default content-type if missing; guess by payload
+        final ct = message.headers.get(HttpHeaders.CONTENT_TYPE);
+        if (ct == null || ct.trim().isEmpty) {
+          final guessed = _guessContentType(text);
+          message.headers.set(HttpHeaders.CONTENT_TYPE, guessed);
+        }
       }
       return;
     }
+  }
+
+  String _guessContentType(String body) {
+    final t = body.trimLeft();
+    if (t.startsWith('{') || t.startsWith('[')) return 'application/json; charset=utf-8';
+    if (t.startsWith('<!') || t.startsWith('<html') || t.startsWith('<HTML') || t.startsWith('<')) return 'text/html; charset=utf-8';
+    return 'text/plain; charset=utf-8';
   }
 }

@@ -914,6 +914,8 @@ Operational Guidance
             'type': 'string',
             'enum': RuleType.values.map((e) => e.name).toList()
           },
+          'name': {'type': 'string'},
+          'enabled': {'type': 'boolean', 'default': true},
           'items': {
             'type': 'array',
             'items': {
@@ -1210,37 +1212,100 @@ Operational Guidance
       case 'add_rewrite_rule':
         final urlPattern = (args['url_pattern'] as String).trim();
         final typeStr = (args['type'] as String).trim();
+        final ruleName = (args['name'] as String?)?.trim();
+        final ruleEnabled = (args['enabled'] as bool?) ?? true;
         final itemsAny = (args['items'] as List?);
         if (urlPattern.isEmpty) return {'ok': false, 'error': 'url_pattern required'};
         if (typeStr.isEmpty) return {'ok': false, 'error': 'type required'};
         if (itemsAny == null || itemsAny.isEmpty) return {'ok': false, 'error': 'items required'};
         final type = RuleType.fromName(typeStr);
-        // Normalize items to expected {enabled, type, values:{...}} shape
+
+        // Normalize items to expected {enabled, type, values:{...}} shape and expand convenience fields
+        String _canonType(String s, RuleType ruleType) {
+          final x = s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+          bool isResp = ruleType == RuleType.responseReplace || ruleType == RuleType.responseUpdate;
+          bool isReq = ruleType == RuleType.requestReplace || ruleType == RuleType.requestUpdate;
+          if (x.contains('responsestatus') || x == 'status' || x == 'setstatus' || x == 'statuscode' || x == 'setstatuscode') {
+            return 'replaceResponseStatus';
+          }
+          if (x.contains('responseheader') || x == 'headers' || x == 'setheader' || x == 'setheaders' || x == 'header') {
+            return isResp ? 'replaceResponseHeader' : 'replaceRequestHeader';
+          }
+          if (x.contains('responsebody') || x == 'body' || x == 'setbody' || x == 'content' || x == 'text') {
+            return isResp ? 'replaceResponseBody' : 'replaceRequestBody';
+          }
+          if (x.contains('requestheader')) return 'replaceRequestHeader';
+          if (x.contains('requestbody')) return 'replaceRequestBody';
+          // default by rule
+          return isResp ? 'replaceResponseBody' : 'replaceRequestBody';
+        }
+
         final normed = <Map<String, dynamic>>[];
         for (final raw in itemsAny) {
           if (raw is! Map) continue;
           final m = Map<String, dynamic>.from(raw as Map);
-          // ensure type
-          final t = m['type'];
-          if (t is! String || t.trim().isEmpty) continue;
-          m['type'] = t.trim();
-          // default enabled
+          // type
+          final tRaw = (m['type'] as String?) ?? '';
+          final t = _canonType(tRaw, type);
+          m['type'] = t;
+          // enabled default true
           if (m['enabled'] is! bool) m['enabled'] = true;
-          // wrap loose fields into values if needed
-          if (m['values'] == null || m['values'] is! Map) {
-            final v = <String, dynamic>{};
+          // build values
+          Map<String, dynamic> v;
+          if (m['values'] is Map) {
+            v = Map<String, dynamic>.from(m['values'] as Map);
+          } else {
+            v = <String, dynamic>{};
             for (final k in List.of(m.keys)) {
               if (k == 'type' || k == 'enabled' || k == 'values') continue;
               v[k] = m.remove(k);
             }
-            m['values'] = v;
           }
+          // aliases
+          if (!v.containsKey('statusCode')) {
+            if (v['status'] != null) v['statusCode'] = v['status'];
+            if (v['status_code'] != null) v['statusCode'] = v['status_code'];
+          }
+          if (!v.containsKey('headers')) {
+            if (v['header'] is Map) v['headers'] = v['header'];
+            if (v['response_headers'] is Map) v['headers'] = v['response_headers'];
+            if (v['response_header'] is Map) v['headers'] = v['response_header'];
+          }
+          if (!v.containsKey('body') && v['content'] is String) v['body'] = v['content'];
+          if (!v.containsKey('bodyFile') && v['body_file'] is String) v['bodyFile'] = v['body_file'];
+          if (!v.containsKey('bodyType') && v['body_type'] is String) v['bodyType'] = v['body_type'];
+
+          // attach values back
+          m['values'] = v;
           normed.add(m);
+
+          // Expand combined convenience: split status/headers into their own items if present but type is body
+          if ((t == 'replaceResponseBody' || t == 'replaceRequestBody')) {
+            if (v['statusCode'] != null) {
+              normed.add({
+                'enabled': true,
+                'type': 'replaceResponseStatus',
+                'values': {'statusCode': v['statusCode']}
+              });
+            }
+            if (v['headers'] is Map) {
+              final headers = Map<String, String>.from(v['headers'] as Map);
+              normed.add({
+                'enabled': true,
+                'type': t == 'replaceResponseBody' ? 'replaceResponseHeader' : 'replaceRequestHeader',
+                'values': {'headers': headers}
+              });
+            }
+          }
         }
+
         if (normed.isEmpty) return {'ok': false, 'error': 'invalid items'};
         final items = normed.map((e) => RewriteItem.fromJson(e)).toList();
-        await AITools.addRewriteRule(urlPattern: urlPattern, type: type, items: items);
-        return {'ok': true};
+        final finalName = (ruleName == null || ruleName.isEmpty)
+            ? 'AI ${type.name} @ ${DateTime.now().toIso8601String()}'
+            : ruleName;
+        await AITools.addRewriteRule(urlPattern: urlPattern, type: type, items: items, name: finalName, enabled: ruleEnabled);
+        return {'ok': true, 'name': finalName, 'count': items.length};
       case 'remove_rewrite_rule':
         final urlPattern = args['url_pattern'] as String;
         final typeStr = args['type'] as String;
