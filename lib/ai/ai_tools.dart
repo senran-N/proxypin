@@ -1,4 +1,4 @@
-
+import 'dart:convert';
 import 'package:proxypin/network/components/manager/request_rewrite_manager.dart';
 import 'package:proxypin/network/components/manager/rewrite_rule.dart';
 import 'package:proxypin/network/components/manager/script_manager.dart';
@@ -89,13 +89,23 @@ class AITools {
     bool enabled = true,
   }) async {
     final mgr = await RequestRewriteManager.instance;
-    // Upsert: if a rule with same url + type exists, update it instead of adding duplicates
+    // Upsert-and-merge: if a rule with same url + type exists, append new items to it (keep previous changes)
     for (var i = 0; i < mgr.rules.length; i++) {
       final r = mgr.rules[i];
       if (r.url == urlPattern && r.type == type) {
         final updated = RequestRewriteRule(url: urlPattern, type: type, name: name ?? r.name, enabled: enabled);
         updated.rewritePath = r.rewritePath; // preserve path for items file
-        await mgr.updateRule(i, updated, items);
+        // Merge existing items with new ones, avoid duplicates
+        final existing = await mgr.getRewriteItems(r) ?? <RewriteItem>[];
+        final merged = <RewriteItem>[]..addAll(existing)..addAll(items);
+        // Simple de-duplication by JSON signature
+        final seen = <String>{};
+        final deduped = <RewriteItem>[];
+        for (final it in merged) {
+          final sig = jsonEncode(it.toJson());
+          if (seen.add(sig)) deduped.add(it);
+        }
+        await mgr.updateRule(i, updated, deduped);
         await mgr.flushRequestRewriteConfig();
         return;
       }

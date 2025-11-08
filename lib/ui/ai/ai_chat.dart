@@ -540,16 +540,29 @@ Tool Usage Policy
 - Field access: use get_fields for headers/cookies/basic body excerpts. For body content, prefer get_body_range or extract_json with a precise path. Do not read entire bodies if a slice or field suffices.
 - Aggregation: use aggregate_traffic for stats instead of scanning many items.
 - WebSocket: use get_ws_messages with a small 'limit'.
-- Mutations (add_script, add_rewrite_rule, update_filters, set_config, replay_request):
+- Mutations (add_script, add_rewrite_rule/add_rewrite_items, update_filters, set_config, replay_request):
   1) Explain the minimal plan and ask for confirmation unless the user explicitly requested the change.
   2) Make the smallest safe change. Avoid broad patterns and global effects.
 
-Rewrite Rules (Very Important)
-- Only modify the original message body. Do NOT invent a whole new body. Prefer update rules: type = requestUpdate/responseUpdate with items.type = updateBody using a precise regex 'key' and a 'value' replacement.
-- When the user provides the original body text, derive a minimal regex from the exact snippet to change (escape special chars) and set 'value' to the updated snippet.
-- Headers: use updateHeader with a specific '^Header-Name:.*\$' key and 'Header-Name: new' value; use addHeader/removeHeader as needed. Avoid full header replacement unless explicitly asked.
-- Status code: include it only when the user asks; provide 'statusCode' to enable it. It will be applied even in update mode.
-- Idempotent: if a rule for the same url/type already exists, update it rather than creating duplicates.
+Rewrite Rules (Authoritative)
+- Choose scope: request vs response based on what needs changing.
+- Prefer update types by default (requestUpdate/responseUpdate). Use replace types only when explicitly asked to fully override.
+- Body edits: use items.type = updateBody with a precise regex 'key' and the replacement 'value'. If given raw before/after (or original/modified), escape special chars and derive 'key' automatically.
+- Headers:
+  - Read/locate via get_fields; change via updateHeader using a specific regex like '^Header-Name:.*\$' and a full-line replacement 'Header-Name: new'.
+  - Use addHeader/removeHeader when creating or deleting keys. Avoid full header replacement unless requested.
+- Status:
+  - When the user requests a status change, include 'statusCode'. It applies even in update mode.
+- Rule lifecycle:
+  - Inspect existing rules: find_rewrite_rules, get_rewrite_rule.
+  - Append changes (do not overwrite): add_rewrite_items.
+  - Order/cleanup: reorder_rewrite_items, remove_rewrite_items, set_item_enabled, set_rule_enabled, rename_rewrite_rule, set_rule_type.
+  - Validate locally before persisting: preview_rewrite on a small provided body/headers.
+- Idempotent & Additive:
+  - For the same url/type, append new items to the existing rule and avoid duplicating identical items.
+  - Keep regex narrow to avoid overmatching; anchor when possible (e.g., '^Authorization:.*\$').
+  - If capturing groups are necessary, use them explicitly and reference as '\$1', '\$2', etc.
+- Naming: provide a short, informative rule name (purpose + path keyword). Items default 'enabled=true' unless user asks to defer.
 
 Privacy & Safety
 - Do not exfiltrate data. Do not access unrelated traffic. Redact secrets (tokens, cookies, passwords) unless the user explicitly asks to see them.
@@ -952,7 +965,11 @@ Operational Guidance
                     },
                     'body': {'type': 'string'},
                     'bodyType': {'type': 'string', 'enum': ['text', 'file']},
-                    'bodyFile': {'type': 'string'}
+                    'bodyFile': {'type': 'string'},
+                    'before': {'type': 'string'},
+                    'after': {'type': 'string'},
+                    'original': {'type': 'string'},
+                    'modified': {'type': 'string'}
                   }
                 }
               }
@@ -969,6 +986,105 @@ Operational Guidance
             'type': 'string',
             'enum': RuleType.values.map((e) => e.name).toList()
           }
+        }
+      }),
+      AIToolSpec('find_rewrite_rules', 'Find rewrite rules by filters', {
+        'type': 'object',
+        'properties': {
+          'url_pattern': {'type': 'string'},
+          'type': {'type': 'string', 'enum': RuleType.values.map((e) => e.name).toList()},
+          'name': {'type': 'string'}
+        }
+      }),
+      AIToolSpec('get_rewrite_rule', 'Get a single rewrite rule with items', {
+        'type': 'object',
+        'required': ['url_pattern', 'type'],
+        'properties': {
+          'url_pattern': {'type': 'string'},
+          'type': {'type': 'string', 'enum': RuleType.values.map((e) => e.name).toList()}
+        }
+      }),
+      AIToolSpec('add_rewrite_items', 'Append items to an existing rewrite rule', {
+        'type': 'object',
+        'required': ['items'],
+        'properties': {
+          'rule_name': {'type': 'string'},
+          'url_pattern': {'type': 'string'},
+          'type': {'type': 'string', 'enum': RuleType.values.map((e) => e.name).toList()},
+          'dedupe': {'type': 'boolean', 'default': true},
+          'items': {
+            'type': 'array',
+            'items': {'type': 'object'}
+          }
+        }
+      }),
+      AIToolSpec('remove_rewrite_items', 'Remove items by indexes from a rule', {
+        'type': 'object',
+        'required': ['indexes'],
+        'properties': {
+          'rule_name': {'type': 'string'},
+          'url_pattern': {'type': 'string'},
+          'type': {'type': 'string', 'enum': RuleType.values.map((e) => e.name).toList()},
+          'indexes': {'type': 'array', 'items': {'type': 'integer'}}
+        }
+      }),
+      AIToolSpec('reorder_rewrite_items', 'Reorder items of a rule by new index order', {
+        'type': 'object',
+        'required': ['new_order'],
+        'properties': {
+          'rule_name': {'type': 'string'},
+          'url_pattern': {'type': 'string'},
+          'type': {'type': 'string', 'enum': RuleType.values.map((e) => e.name).toList()},
+          'new_order': {'type': 'array', 'items': {'type': 'integer'}}
+        }
+      }),
+      AIToolSpec('set_rule_enabled', 'Enable/disable a rewrite rule', {
+        'type': 'object',
+        'required': ['enabled'],
+        'properties': {
+          'rule_name': {'type': 'string'},
+          'url_pattern': {'type': 'string'},
+          'type': {'type': 'string', 'enum': RuleType.values.map((e) => e.name).toList()},
+          'enabled': {'type': 'boolean'}
+        }
+      }),
+      AIToolSpec('set_item_enabled', 'Enable/disable items in a rule by indexes', {
+        'type': 'object',
+        'required': ['indexes', 'enabled'],
+        'properties': {
+          'rule_name': {'type': 'string'},
+          'url_pattern': {'type': 'string'},
+          'type': {'type': 'string', 'enum': RuleType.values.map((e) => e.name).toList()},
+          'indexes': {'type': 'array', 'items': {'type': 'integer'}},
+          'enabled': {'type': 'boolean'}
+        }
+      }),
+      AIToolSpec('rename_rewrite_rule', 'Rename a rewrite rule', {
+        'type': 'object',
+        'required': ['name'],
+        'properties': {
+          'rule_name': {'type': 'string'},
+          'url_pattern': {'type': 'string'},
+          'type': {'type': 'string', 'enum': RuleType.values.map((e) => e.name).toList()},
+          'name': {'type': 'string'}
+        }
+      }),
+      AIToolSpec('set_rule_type', 'Change rule type', {
+        'type': 'object',
+        'required': ['type'],
+        'properties': {
+          'rule_name': {'type': 'string'},
+          'url_pattern': {'type': 'string'},
+          'type': {'type': 'string', 'enum': RuleType.values.map((e) => e.name).toList()}
+        }
+      }),
+      AIToolSpec('preview_rewrite', 'Preview applying rewrite items to a given body/headers (no persistence)', {
+        'type': 'object',
+        'properties': {
+          'body': {'type': 'string'},
+          'headers': {'type': 'object', 'additionalProperties': {'type': 'string'}},
+          'items': {'type': 'array', 'items': {'type': 'object'}},
+          'assume_response': {'type': 'boolean', 'default': true}
         }
       }),
       AIToolSpec('set_rewrite_enabled', 'Enable/disable request rewrite', {
@@ -1347,6 +1463,300 @@ Operational Guidance
         await mgr.removeIndex(toRemove.reversed.toList());
         await mgr.flushRequestRewriteConfig();
         return {'ok': true, 'removed': toRemove.length};
+      case 'find_rewrite_rules':
+        {
+          final name = (args['name'] as String?)?.trim();
+          final urlPat = (args['url_pattern'] as String?)?.trim();
+          final typeStr = (args['type'] as String?)?.trim();
+          final mgr = await RequestRewriteManager.instance;
+          final out = <Map<String, dynamic>>[];
+          for (var i = 0; i < mgr.rules.length; i++) {
+            final r = mgr.rules[i];
+            bool match = true;
+            if (name != null && name.isNotEmpty) match &= (r.name ?? '').contains(name);
+            if (urlPat != null && urlPat.isNotEmpty) {
+              try {
+                final re = RegExp(urlPat);
+                match &= re.hasMatch(r.url);
+              } catch (_) {
+                match &= r.url.contains(urlPat);
+              }
+            }
+            if (typeStr != null && typeStr.isNotEmpty) match &= (r.type == RuleType.fromName(typeStr));
+            if (!match) continue;
+            final items = await mgr.getRewriteItems(r) ?? <RewriteItem>[];
+            out.add({'index': i, 'name': r.name, 'url': r.url, 'type': r.type.name, 'enabled': r.enabled, 'item_count': items.length});
+          }
+          return {'ok': true, 'rules': out};
+        }
+      case 'get_rewrite_rule':
+        {
+          final urlPat = (args['url_pattern'] as String).trim();
+          final type = RuleType.fromName((args['type'] as String).trim());
+          final mgr = await RequestRewriteManager.instance;
+          for (var i = 0; i < mgr.rules.length; i++) {
+            final r = mgr.rules[i];
+            if (r.url == urlPat && r.type == type) {
+              final items = await mgr.getRewriteItems(r) ?? <RewriteItem>[];
+              return {'ok': true, 'index': i, 'rule': r.toJson(), 'items': items.map((e) => e.toJson()).toList()};
+            }
+          }
+          return {'ok': false, 'error': 'not found'};
+        }
+      case 'add_rewrite_items':
+        {
+          final ruleName = (args['rule_name'] as String?)?.trim();
+          final urlPat = (args['url_pattern'] as String?)?.trim();
+          final typeStr = (args['type'] as String?)?.trim();
+          final dedupe = (args['dedupe'] as bool?) ?? true;
+          final itemsAny = (args['items'] as List?) ?? [];
+          final mgr = await RequestRewriteManager.instance;
+          int? idx;
+          for (var i = 0; i < mgr.rules.length; i++) {
+            final r = mgr.rules[i];
+            if (ruleName != null && ruleName.isNotEmpty && r.name == ruleName) { idx = i; break; }
+            if (urlPat != null && urlPat.isNotEmpty && typeStr != null && typeStr.isNotEmpty && r.url == urlPat && r.type == RuleType.fromName(typeStr)) { idx = i; break; }
+          }
+          if (idx == null) return {'ok': false, 'error': 'rule not found'};
+          final rule = mgr.rules[idx];
+          String _canonType(String s, RuleType ruleType) {
+            final x = s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+            if (x.contains('responsestatus') || x == 'status' || x == 'setstatus' || x == 'statuscode' || x == 'setstatuscode') return 'replaceResponseStatus';
+            if (x.contains('responseheader') || x == 'headers' || x == 'setheader' || x == 'setheaders' || x == 'header' || x == 'updateheaders') return 'updateHeader';
+            if (x.contains('responsebody') || x == 'body' || x == 'setbody' || x == 'content' || x == 'text' || x == 'updatebody') return 'updateBody';
+            if (x.contains('requestheader')) return 'updateHeader';
+            if (x.contains('requestbody')) return 'updateBody';
+            return 'updateBody';
+          }
+          final normed = <Map<String, dynamic>>[];
+          for (final raw in itemsAny) {
+            if (raw is! Map) continue;
+            final m = Map<String, dynamic>.from(raw as Map);
+            final tRaw = (m['type'] as String?) ?? '';
+            final t = _canonType(tRaw, rule.type);
+            m['type'] = t;
+            if (m['enabled'] is! bool) m['enabled'] = true;
+            Map<String, dynamic> v;
+            if (m['values'] is Map) { v = Map<String, dynamic>.from(m['values'] as Map); } else { v = <String, dynamic>{}; for (final k in List.of(m.keys)) { if (k == 'type' || k == 'enabled' || k == 'values') continue; v[k] = m.remove(k); } }
+            if (t == 'updateBody') {
+              final before = (v['before'] ?? v['original'] ?? '') as String;
+              final after = (v['after'] ?? v['modified'] ?? '') as String;
+              final key = (v['key'] ?? '') as String;
+              final hasBA = before.trim().isNotEmpty && after.isNotEmpty;
+              if (key.trim().isEmpty && hasBA) { v['key'] = RegExp.escape(before); v['value'] = after; }
+            }
+            if (!v.containsKey('statusCode')) { if (v['status'] != null) v['statusCode'] = v['status']; if (v['status_code'] != null) v['statusCode'] = v['status_code']; }
+            if (!v.containsKey('headers')) { if (v['header'] is Map) v['headers'] = v['header']; if (v['response_headers'] is Map) v['headers'] = v['response_headers']; if (v['response_header'] is Map) v['headers'] = v['response_header']; }
+            if (!v.containsKey('body') && v['content'] is String) v['body'] = v['content'];
+            if (!v.containsKey('bodyFile') && v['body_file'] is String) v['bodyFile'] = v['body_file'];
+            if (!v.containsKey('bodyType') && v['body_type'] is String) v['bodyType'] = v['body_type'];
+            m['values'] = v;
+            normed.add(m);
+            if (v['statusCode'] != null && (rule.type == RuleType.responseReplace || rule.type == RuleType.responseUpdate)) {
+              normed.add({'enabled': true, 'type': 'replaceResponseStatus', 'values': {'statusCode': v['statusCode']}});
+            }
+            if (v['headers'] is Map) {
+              final headers = Map<String, String>.from(v['headers'] as Map);
+              headers.forEach((hk, hv) {
+                final keyPattern = '^' + RegExp.escape(hk) + r':.*\$';
+                final newLine = '$hk: $hv';
+                normed.add({'enabled': true, 'type': 'updateHeader', 'values': {'key': keyPattern, 'value': newLine}});
+              });
+            }
+          }
+          final existing = await mgr.getRewriteItems(rule) ?? <RewriteItem>[];
+          final merged = <RewriteItem>[]..addAll(existing)..addAll(normed.map((e) => RewriteItem.fromJson(e)));
+          if (dedupe) {
+            final seen = <String>{};
+            final ded = <RewriteItem>[];
+            for (final it in merged) { final sig = jsonEncode(it.toJson()); if (seen.add(sig)) ded.add(it); }
+            await mgr.updateRule(idx, rule, ded);
+            await mgr.flushRequestRewriteConfig();
+            return {'ok': true, 'added': merged.length - existing.length - (merged.length - ded.length), 'count': ded.length};
+          } else {
+            await mgr.updateRule(idx, rule, merged);
+            await mgr.flushRequestRewriteConfig();
+            return {'ok': true, 'added': merged.length - existing.length, 'count': merged.length};
+          }
+        }
+      case 'remove_rewrite_items':
+        {
+          final ruleName = (args['rule_name'] as String?)?.trim();
+          final urlPat = (args['url_pattern'] as String?)?.trim();
+          final typeStr = (args['type'] as String?)?.trim();
+          final indexes = ((args['indexes'] as List?) ?? []).cast<int>();
+          final mgr = await RequestRewriteManager.instance;
+          int? idx;
+          for (var i = 0; i < mgr.rules.length; i++) {
+            final r = mgr.rules[i];
+            if (ruleName != null && ruleName.isNotEmpty && r.name == ruleName) { idx = i; break; }
+            if (urlPat != null && urlPat.isNotEmpty && typeStr != null && typeStr.isNotEmpty && r.url == urlPat && r.type == RuleType.fromName(typeStr)) { idx = i; break; }
+          }
+          if (idx == null) return {'ok': false, 'error': 'rule not found'};
+          final rule = mgr.rules[idx];
+          final list = (await mgr.getRewriteItems(rule)) ?? <RewriteItem>[];
+          final toRemove = indexes.where((i) => i >= 0 && i < list.length).toList()..sort((a, b) => b.compareTo(a));
+          for (final i in toRemove) { list.removeAt(i); }
+          await mgr.updateRule(idx, rule, list);
+          await mgr.flushRequestRewriteConfig();
+          return {'ok': true, 'removed': toRemove.length, 'count': list.length};
+        }
+      case 'reorder_rewrite_items':
+        {
+          final ruleName = (args['rule_name'] as String?)?.trim();
+          final urlPat = (args['url_pattern'] as String?)?.trim();
+          final typeStr = (args['type'] as String?)?.trim();
+          final newOrder = ((args['new_order'] as List?) ?? []).cast<int>();
+          final mgr = await RequestRewriteManager.instance;
+          int? idx;
+          for (var i = 0; i < mgr.rules.length; i++) {
+            final r = mgr.rules[i];
+            if (ruleName != null && ruleName.isNotEmpty && r.name == ruleName) { idx = i; break; }
+            if (urlPat != null && urlPat.isNotEmpty && typeStr != null && typeStr.isNotEmpty && r.url == urlPat && r.type == RuleType.fromName(typeStr)) { idx = i; break; }
+          }
+          if (idx == null) return {'ok': false, 'error': 'rule not found'};
+          final rule = mgr.rules[idx];
+          final list = (await mgr.getRewriteItems(rule)) ?? <RewriteItem>[];
+          if (newOrder.length != list.length) return {'ok': false, 'error': 'new_order length mismatch'};
+          final seen = <int>{};
+          final out = <RewriteItem>[];
+          for (final i in newOrder) { if (i < 0 || i >= list.length || !seen.add(i)) return {'ok': false, 'error': 'invalid new_order'}; out.add(list[i]); }
+          await mgr.updateRule(idx, rule, out);
+          await mgr.flushRequestRewriteConfig();
+          return {'ok': true, 'count': out.length};
+        }
+      case 'set_rule_enabled':
+        {
+          final ruleName = (args['rule_name'] as String?)?.trim();
+          final urlPat = (args['url_pattern'] as String?)?.trim();
+          final typeStr = (args['type'] as String?)?.trim();
+          final enabled = (args['enabled'] as bool);
+          final mgr = await RequestRewriteManager.instance;
+          for (var i = 0; i < mgr.rules.length; i++) {
+            final r = mgr.rules[i];
+            if ((ruleName != null && ruleName.isNotEmpty && r.name == ruleName) || (urlPat != null && urlPat.isNotEmpty && typeStr != null && typeStr.isNotEmpty && r.url == urlPat && r.type == RuleType.fromName(typeStr))) {
+              final updated = RequestRewriteRule(url: r.url, type: r.type, name: r.name, enabled: enabled)..rewritePath = r.rewritePath;
+              await mgr.updateRule(i, updated, null);
+              await mgr.flushRequestRewriteConfig();
+              return {'ok': true, 'enabled': enabled};
+            }
+          }
+          return {'ok': false, 'error': 'rule not found'};
+        }
+      case 'set_item_enabled':
+        {
+          final ruleName = (args['rule_name'] as String?)?.trim();
+          final urlPat = (args['url_pattern'] as String?)?.trim();
+          final typeStr = (args['type'] as String?)?.trim();
+          final indexes = ((args['indexes'] as List?) ?? []).cast<int>();
+          final enabled = (args['enabled'] as bool);
+          final mgr = await RequestRewriteManager.instance;
+          int? idx;
+          for (var i = 0; i < mgr.rules.length; i++) {
+            final r = mgr.rules[i];
+            if (ruleName != null && ruleName.isNotEmpty && r.name == ruleName) { idx = i; break; }
+            if (urlPat != null && urlPat.isNotEmpty && typeStr != null && typeStr.isNotEmpty && r.url == urlPat && r.type == RuleType.fromName(typeStr)) { idx = i; break; }
+          }
+          if (idx == null) return {'ok': false, 'error': 'rule not found'};
+          final rule = mgr.rules[idx];
+          final list = (await mgr.getRewriteItems(rule)) ?? <RewriteItem>[];
+          for (final i in indexes) { if (i >= 0 && i < list.length) list[i].enabled = enabled; }
+          await mgr.updateRule(idx, rule, list);
+          await mgr.flushRequestRewriteConfig();
+          return {'ok': true};
+        }
+      case 'rename_rewrite_rule':
+        {
+          final ruleName = (args['rule_name'] as String?)?.trim();
+          final urlPat = (args['url_pattern'] as String?)?.trim();
+          final typeStr = (args['type'] as String?)?.trim();
+          final newName = (args['name'] as String).trim();
+          final mgr = await RequestRewriteManager.instance;
+          for (var i = 0; i < mgr.rules.length; i++) {
+            final r = mgr.rules[i];
+            if ((ruleName != null && ruleName.isNotEmpty && r.name == ruleName) || (urlPat != null && urlPat.isNotEmpty && typeStr != null && typeStr.isNotEmpty && r.url == urlPat && r.type == RuleType.fromName(typeStr))) {
+              final updated = RequestRewriteRule(url: r.url, type: r.type, name: newName, enabled: r.enabled)..rewritePath = r.rewritePath;
+              final items = await mgr.getRewriteItems(r);
+              await mgr.updateRule(i, updated, items);
+              await mgr.flushRequestRewriteConfig();
+              return {'ok': true, 'name': newName};
+            }
+          }
+          return {'ok': false, 'error': 'rule not found'};
+        }
+      case 'set_rule_type':
+        {
+          final ruleName = (args['rule_name'] as String?)?.trim();
+          final urlPat = (args['url_pattern'] as String?)?.trim();
+          final typeStrNew = (args['type'] as String).trim();
+          final mgr = await RequestRewriteManager.instance;
+          for (var i = 0; i < mgr.rules.length; i++) {
+            final r = mgr.rules[i];
+            if ((ruleName != null && ruleName.isNotEmpty && r.name == ruleName) || (urlPat != null && urlPat.isNotEmpty && r.url == urlPat)) {
+              final updated = RequestRewriteRule(url: r.url, type: RuleType.fromName(typeStrNew), name: r.name, enabled: r.enabled)..rewritePath = r.rewritePath;
+              final items = await mgr.getRewriteItems(r);
+              await mgr.updateRule(i, updated, items);
+              await mgr.flushRequestRewriteConfig();
+              return {'ok': true, 'type': updated.type.name};
+            }
+          }
+          return {'ok': false, 'error': 'rule not found'};
+        }
+      case 'preview_rewrite':
+        {
+          String body = (args['body'] as String?) ?? '';
+          Map<String, String> headers = ((args['headers'] as Map?)?.cast<String, String>()) ?? <String, String>{};
+          final itemsAny = (args['items'] as List?) ?? <dynamic>[];
+          for (final raw in itemsAny) {
+            if (raw is! Map) continue;
+            final enabled = (raw['enabled'] as bool?) ?? true;
+            if (!enabled) continue;
+            final t = (raw['type'] as String?) ?? '';
+            final values = (raw['values'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+            switch (t) {
+              case 'updateBody':
+                final key = (values['key'] as String?) ?? '';
+                final val = (values['value'] as String?) ?? '';
+                if (key.trim().isEmpty) break;
+                try { body = body.replaceAll(RegExp(key, multiLine: true, dotAll: true), val); } catch (_) {}
+                break;
+              case 'replaceResponseBody':
+              case 'replaceRequestBody':
+                final b = (values['body'] as String?) ?? '';
+                body = b;
+                break;
+              case 'addHeader':
+                final k = (values['key'] as String?) ?? '';
+                final v = (values['value'] as String?) ?? '';
+                if (k.isNotEmpty) headers[k] = v;
+                break;
+              case 'removeHeader':
+                final k = (values['key'] as String?) ?? '';
+                final v = (values['value'] as String?);
+                if (k.isEmpty) break;
+                if (!headers.containsKey(k)) break;
+                if (v == null || v.trim().isEmpty) { headers.remove(k); break; }
+                try { final re = RegExp(v); if (re.hasMatch(headers[k] ?? '')) headers.remove(k); } catch (_) {}
+                break;
+              case 'updateHeader':
+                final keyPattern = (values['key'] as String?) ?? '';
+                final newLine = (values['value'] as String?) ?? '';
+                if (keyPattern.isEmpty || newLine.isEmpty) break;
+                try {
+                  final re = RegExp(keyPattern, multiLine: true, caseSensitive: false);
+                  final lines = headers.entries.map((e) => '${e.key}: ${e.value}').toList();
+                  for (var i = 0; i < lines.length; i++) { if (re.hasMatch(lines[i])) { lines[i] = newLine; } }
+                  headers = <String, String>{};
+                  for (final ln in lines) { final idx = ln.indexOf(':'); if (idx > 0) { final k = ln.substring(0, idx).trim(); final v = ln.substring(idx + 1).trim(); headers[k] = v; } }
+                } catch (_) {}
+                break;
+              case 'replaceResponseStatus':
+                // ignored in preview
+                break;
+            }
+          }
+          return {'ok': true, 'body': body, 'headers': headers};
+        }
       case 'set_rewrite_enabled':
         final enabled = args['enabled'] as bool;
         final mgr = await RequestRewriteManager.instance;
