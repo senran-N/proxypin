@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -525,9 +526,37 @@ class _AIChatPageState extends State<AIChatPage> with TickerProviderStateMixin {
   }
 
   String _systemPrompt() {
-    return 'You are integrated with a network proxy tool. '
-        'Autonomously fetch traffic, extract fields (use get_fields/get_body_range/extract_json), and apply changes (add_script/add_rewrite_rule/update_filters/set_config/replay_request). '
-        'Prefer returning only requested fields; use limits to avoid overly large outputs.';
+    final maxItems = _settings.maxContextItems;
+    return '''
+You are an on-device assistant integrated with a network proxy tool (ProxyPin). Act with strict data minimization and explicit user intent.
+
+Core Rules
+- Only access data that is explicitly requested or strictly necessary to answer the current question. If the user’s ask is vague, ask for filters first (keyword, time window, method, status, ids).
+- Always minimize context. Default to at most $maxItems items and avoid long bodies. Never dump full traffic or entire bodies unless the user clearly asks.
+- Prefer structured, concise answers. Lead with the result; avoid repetition and boilerplate.
+
+Tool Usage Policy
+- Discovery/filtering: use get_traffic, search_traffic, list_requests with an explicit 'limit' (<= $maxItems). Prefer metadata over content.
+- Field access: use get_fields for headers/cookies/basic body excerpts. For body content, prefer get_body_range or extract_json with a precise path. Do not read entire bodies if a slice or field suffices.
+- Aggregation: use aggregate_traffic for stats instead of scanning many items.
+- WebSocket: use get_ws_messages with a small 'limit'.
+- Mutations (add_script, add_rewrite_rule, update_filters, set_config, replay_request):
+  1) Explain the minimal plan and ask for confirmation unless the user explicitly requested the change.
+  2) Make the smallest safe change. Avoid broad patterns and global effects.
+
+Privacy & Safety
+- Do not exfiltrate data. Do not access unrelated traffic. Redact secrets (tokens, cookies, passwords) unless the user explicitly asks to see them.
+- Never include more than $maxItems items or large raw blobs. Summarize and provide request_id references for drill‑down on demand.
+
+Output Style
+- Chinese preferred. Keep it short: bullets or short paragraphs.
+- Return only requested fields. If listing traffic, include: time, method, url, status, duration_ms, and request_id. Omit raw bodies by default.
+- When bodies are necessary, show only the minimal slice and clearly mark truncation.
+
+Operational Guidance
+- After each tool call, reassess; do not chain unnecessary calls.
+- If a call fails or a required field is missing, state what is needed and ask for a narrower filter or the exact request_id.
+''';
   }
 
   Future<void> _chatLoop(AIMessage system) async {
@@ -879,12 +908,60 @@ class _AIChatPageState extends State<AIChatPage> with TickerProviderStateMixin {
       AIToolSpec('add_rewrite_rule', 'Add a rewrite rule with items', {
         'type': 'object',
         'required': ['url_pattern', 'type', 'items'],
-        'properties': {'url_pattern': {'type': 'string'}, 'type': {'type': 'string'}, 'items': {'type': 'array'}}
+        'properties': {
+          'url_pattern': {'type': 'string'},
+          'type': {
+            'type': 'string',
+            'enum': RuleType.values.map((e) => e.name).toList()
+          },
+          'items': {
+            'type': 'array',
+            'items': {
+              'type': 'object',
+              'required': ['type'],
+              'properties': {
+                'enabled': {'type': 'boolean', 'default': true},
+                'type': {
+                  'type': 'string',
+                  'enum': RewriteType.values.map((e) => e.name).toList()
+                },
+                'values': {
+                  'type': 'object',
+                  'properties': {
+                    'key': {'type': 'string'},
+                    'value': {'type': 'string'},
+                    'redirectUrl': {'type': 'string'},
+                    'method': {
+                      'type': 'string',
+                      'enum': HttpMethod.values.map((e) => e.name).toList()
+                    },
+                    'path': {'type': 'string'},
+                    'queryParam': {'type': 'string'},
+                    'statusCode': {'type': 'integer'},
+                    'headers': {
+                      'type': 'object',
+                      'additionalProperties': {'type': 'string'}
+                    },
+                    'body': {'type': 'string'},
+                    'bodyType': {'type': 'string', 'enum': ['text', 'file']},
+                    'bodyFile': {'type': 'string'}
+                  }
+                }
+              }
+            }
+          }
+        }
       }),
       AIToolSpec('remove_rewrite_rule', 'Remove rewrite rule', {
         'type': 'object',
         'required': ['url_pattern', 'type'],
-        'properties': {'url_pattern': {'type': 'string'}, 'type': {'type': 'string'}}
+        'properties': {
+          'url_pattern': {'type': 'string'},
+          'type': {
+            'type': 'string',
+            'enum': RuleType.values.map((e) => e.name).toList()
+          }
+        }
       }),
       AIToolSpec('set_rewrite_enabled', 'Enable/disable request rewrite', {
         'type': 'object',
@@ -928,7 +1005,8 @@ class _AIChatPageState extends State<AIChatPage> with TickerProviderStateMixin {
     switch (name) {
       case 'get_traffic':
       case 'search_traffic':
-        final limit = (args['limit'] ?? (name == 'get_traffic' ? 20 : 50)) as int;
+        var limit = (args['limit'] ?? (name == 'get_traffic' ? 20 : 50)) as int;
+        limit = math.min(limit, _settings.maxContextItems);
         final source = (args['source'] ?? 'current') as String;
         final method = args['method'] as String?;
         final statusFrom = args['status_from'] as int?;
@@ -1000,7 +1078,8 @@ class _AIChatPageState extends State<AIChatPage> with TickerProviderStateMixin {
         }
         return {'ok': true, 'results': map};
       case 'list_requests':
-        final limit = (args['limit'] ?? 50) as int;
+        var limit = (args['limit'] ?? 50) as int;
+        limit = math.min(limit, _settings.maxContextItems);
         final after = args['start_after_id'] as String?;
         final all = _allRequests();
         int start = 0;
@@ -1036,7 +1115,8 @@ class _AIChatPageState extends State<AIChatPage> with TickerProviderStateMixin {
       case 'aggregate_traffic':
         final groupBy = (args['group_by'] as List?)?.cast<String>() ?? <String>[];
         final metric = (args['metric'] ?? 'count') as String;
-        final limit = (args['limit'] ?? 500) as int;
+        var limit = (args['limit'] ?? 500) as int;
+        limit = math.min(limit, _settings.maxContextItems);
         final source = (args['source'] ?? 'current') as String;
         final method = args['method'] as String?;
         final statusFrom = args['status_from'] as int?;
@@ -1058,7 +1138,8 @@ class _AIChatPageState extends State<AIChatPage> with TickerProviderStateMixin {
         return {'ok': true, 'groups': agg};
       case 'get_ws_messages':
         final id = args['request_id'] as String?;
-        final limit = (args['limit'] ?? 50) as int;
+        var limit = (args['limit'] ?? 50) as int;
+        limit = math.min(limit, _settings.maxContextItems);
         final direction = (args['direction'] ?? 'any') as String;
         HttpRequest? r = id == null ? NetworkTabController.current?.request.get() : _findRequestById(id);
         if (r == null) return {'ok': false, 'error': 'no request'};
@@ -1075,7 +1156,8 @@ class _AIChatPageState extends State<AIChatPage> with TickerProviderStateMixin {
         }
         return {'ok': true, 'items': selected.reversed.toList()};
       case 'export_har':
-        final limit = (args['limit'] ?? 100) as int;
+        var limit = (args['limit'] ?? 100) as int;
+        limit = math.min(limit, _settings.maxContextItems);
         final source = (args['source'] ?? 'current') as String;
         final method = args['method'] as String?;
         final statusFrom = args['status_from'] as int?;
@@ -1126,11 +1208,37 @@ class _AIChatPageState extends State<AIChatPage> with TickerProviderStateMixin {
         final mgr = await RequestRewriteManager.instance;
         return {'ok': true, 'config': await mgr.toFullJson()};
       case 'add_rewrite_rule':
-        final urlPattern = args['url_pattern'] as String;
-        final typeStr = args['type'] as String;
-        final itemsRaw = (args['items'] as List).cast<Map<String, dynamic>>();
+        final urlPattern = (args['url_pattern'] as String).trim();
+        final typeStr = (args['type'] as String).trim();
+        final itemsAny = (args['items'] as List?);
+        if (urlPattern.isEmpty) return {'ok': false, 'error': 'url_pattern required'};
+        if (typeStr.isEmpty) return {'ok': false, 'error': 'type required'};
+        if (itemsAny == null || itemsAny.isEmpty) return {'ok': false, 'error': 'items required'};
         final type = RuleType.fromName(typeStr);
-        final items = itemsRaw.map((e) => RewriteItem.fromJson(e)).toList();
+        // Normalize items to expected {enabled, type, values:{...}} shape
+        final normed = <Map<String, dynamic>>[];
+        for (final raw in itemsAny) {
+          if (raw is! Map) continue;
+          final m = Map<String, dynamic>.from(raw as Map);
+          // ensure type
+          final t = m['type'];
+          if (t is! String || t.trim().isEmpty) continue;
+          m['type'] = t.trim();
+          // default enabled
+          if (m['enabled'] is! bool) m['enabled'] = true;
+          // wrap loose fields into values if needed
+          if (m['values'] == null || m['values'] is! Map) {
+            final v = <String, dynamic>{};
+            for (final k in List.of(m.keys)) {
+              if (k == 'type' || k == 'enabled' || k == 'values') continue;
+              v[k] = m.remove(k);
+            }
+            m['values'] = v;
+          }
+          normed.add(m);
+        }
+        if (normed.isEmpty) return {'ok': false, 'error': 'invalid items'};
+        final items = normed.map((e) => RewriteItem.fromJson(e)).toList();
         await AITools.addRewriteRule(urlPattern: urlPattern, type: type, items: items);
         return {'ok': true};
       case 'remove_rewrite_rule':

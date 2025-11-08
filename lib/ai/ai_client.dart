@@ -64,6 +64,49 @@ class AIClient {
     return Uri.parse('$base$path');
   }
 
+  // Sanitize and normalize message payloads to maximize compatibility
+  Map<String, dynamic>? _messageToJson(AIMessage m) {
+    final role = m.role.trim();
+    // Drop malformed tool messages missing required tool_call_id
+    if (role == 'tool' && (m.toolCallId == null || m.toolCallId!.trim().isEmpty)) {
+      return null;
+    }
+    final map = <String, dynamic>{'role': role};
+    if (m.name != null) map['name'] = m.name;
+    if (m.toolCallId != null) map['tool_call_id'] = m.toolCallId;
+    // Sanitize tool_calls for assistant messages
+    List<Map<String, dynamic>>? toolCalls;
+    if (m.toolCalls != null && m.toolCalls!.isNotEmpty) {
+      toolCalls = m.toolCalls!
+          .map((tc) {
+            final id = (tc['id'] as String?)?.trim();
+            final type = (tc['type'] as String?)?.trim();
+            final fn = (tc['function'] as Map?)?.cast<String, dynamic>();
+            final name = (fn?['name'] as String?)?.trim();
+            final args = fn?['arguments'];
+            if (id == null || id.isEmpty || type != 'function' || name == null || name.isEmpty) {
+              return null;
+            }
+            return {
+              'id': id,
+              'type': 'function',
+              'function': {
+                'name': name,
+                'arguments': args is String || args is Map<String, dynamic> ? args : (args?.toString() ?? ''),
+              },
+            };
+          })
+          .whereType<Map<String, dynamic>>()
+          .toList();
+      if (toolCalls.isNotEmpty) {
+        map['tool_calls'] = toolCalls;
+      }
+    }
+    // Content field: keep as string; empty allowed for tool/assistant-with-tool_calls
+    map['content'] = m.content;
+    return map;
+  }
+
   Future<Map<String, dynamic>> chat({
     required List<AIMessage> messages,
     List<AIToolSpec>? tools,
@@ -75,15 +118,18 @@ class AIClient {
     try {
       final req = await client.postUrl(_buildUri('/chat/completions'));
       req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      req.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');
+      // Expect JSON response for non-stream requests
+      req.headers.set(HttpHeaders.acceptHeader, 'application/json');
       if (settings.apiKey.isNotEmpty) {
         req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${settings.apiKey}');
       }
-      final body = {
+      // Build a minimal, widely-compatible OpenAI-compatible request body
+      final body = <String, dynamic>{
         'model': settings.model,
-        'messages': messages.map((m) => m.toJson()).toList(),
-        if (settings.enableTools && tools != null && tools.isNotEmpty) 'tools': tools.map((t) => t.toJson()).toList(),
-        if (settings.enableTools && tools != null && tools.isNotEmpty) 'tool_choice': 'auto',
+        'messages': messages.map(_messageToJson).whereType<Map<String, dynamic>>().toList(),
+        // Many backends default to auto tool selection; omit tool_choice to avoid schema mismatches
+        if (settings.enableTools && tools != null && tools.isNotEmpty)
+          'tools': tools.map((t) => t.toJson()).toList(),
         'temperature': temperature,
         if (stream) 'stream': true,
       };
@@ -117,11 +163,11 @@ class AIClient {
       if (settings.apiKey.isNotEmpty) {
         req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${settings.apiKey}');
       }
-      final body = {
+      final body = <String, dynamic>{
         'model': settings.model,
-        'messages': messages.map((m) => m.toJson()).toList(),
-        if (settings.enableTools && tools != null && tools.isNotEmpty) 'tools': tools.map((t) => t.toJson()).toList(),
-        if (settings.enableTools && tools != null && tools.isNotEmpty) 'tool_choice': 'auto',
+        'messages': messages.map(_messageToJson).whereType<Map<String, dynamic>>().toList(),
+        if (settings.enableTools && tools != null && tools.isNotEmpty)
+          'tools': tools.map((t) => t.toJson()).toList(),
         'temperature': temperature,
         'stream': true,
       };
@@ -169,14 +215,16 @@ class AIClient {
     try {
       final req = await client.postUrl(_buildUri('/chat/completions'));
       req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      // Explicitly request SSE for raw streaming
+      req.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');
       if (settings.apiKey.isNotEmpty) {
         req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${settings.apiKey}');
       }
-      final body = {
+      final body = <String, dynamic>{
         'model': settings.model,
-        'messages': messages.map((m) => m.toJson()).toList(),
-        if (settings.enableTools && tools != null && tools.isNotEmpty) 'tools': tools.map((t) => t.toJson()).toList(),
-        if (settings.enableTools && tools != null && tools.isNotEmpty) 'tool_choice': 'auto',
+        'messages': messages.map(_messageToJson).whereType<Map<String, dynamic>>().toList(),
+        if (settings.enableTools && tools != null && tools.isNotEmpty)
+          'tools': tools.map((t) => t.toJson()).toList(),
         'temperature': temperature,
         'stream': true,
       };

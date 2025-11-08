@@ -34,7 +34,17 @@ enum RuleType {
   const RuleType(this.label);
 
   static RuleType fromName(String name) {
-    return values.firstWhere((element) => element.name == name || element.label == name);
+    String norm(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final target = norm(name);
+    for (final v in values) {
+      if (norm(v.name) == target || norm(v.label) == target) return v;
+    }
+    // Fallback: try partials like replace_request -> requestReplace
+    for (final v in values) {
+      if (target.contains(norm(v.name))) return v;
+    }
+    // Default to responseUpdate as a safe no-op-ish change
+    return RuleType.responseUpdate;
   }
 }
 
@@ -236,7 +246,13 @@ enum RewriteType {
   const RewriteType(this.label);
 
   static RewriteType fromName(String name) {
-    return values.firstWhere((element) => element.name == name);
+    String norm(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final target = norm(name);
+    for (final v in values) {
+      if (norm(v.name) == target || norm(v.label) == target) return v;
+    }
+    // Fallback to conservative default
+    return RewriteType.updateHeader;
   }
 
   String getDescribe(bool isCN) {
