@@ -89,6 +89,17 @@ class AITools {
     bool enabled = true,
   }) async {
     final mgr = await RequestRewriteManager.instance;
+    // Upsert: if a rule with same url + type exists, update it instead of adding duplicates
+    for (var i = 0; i < mgr.rules.length; i++) {
+      final r = mgr.rules[i];
+      if (r.url == urlPattern && r.type == type) {
+        final updated = RequestRewriteRule(url: urlPattern, type: type, name: name ?? r.name, enabled: enabled);
+        updated.rewritePath = r.rewritePath; // preserve path for items file
+        await mgr.updateRule(i, updated, items);
+        await mgr.flushRequestRewriteConfig();
+        return;
+      }
+    }
     final rule = RequestRewriteRule(url: urlPattern, type: type, name: name, enabled: enabled);
     await mgr.addRule(rule, items);
     await mgr.flushRequestRewriteConfig();

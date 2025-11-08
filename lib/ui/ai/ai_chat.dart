@@ -544,6 +544,13 @@ Tool Usage Policy
   1) Explain the minimal plan and ask for confirmation unless the user explicitly requested the change.
   2) Make the smallest safe change. Avoid broad patterns and global effects.
 
+Rewrite Rules (Very Important)
+- Only modify the original message body. Do NOT invent a whole new body. Prefer update rules: type = requestUpdate/responseUpdate with items.type = updateBody using a precise regex 'key' and a 'value' replacement.
+- When the user provides the original body text, derive a minimal regex from the exact snippet to change (escape special chars) and set 'value' to the updated snippet.
+- Headers: use updateHeader with a specific '^Header-Name:.*$' key and 'Header-Name: new' value; use addHeader/removeHeader as needed. Avoid full header replacement unless explicitly asked.
+- Status code: include it only when the user asks; provide 'statusCode' to enable it. It will be applied even in update mode.
+- Idempotent: if a rule for the same url/type already exists, update it rather than creating duplicates.
+
 Privacy & Safety
 - Do not exfiltrate data. Do not access unrelated traffic. Redact secrets (tokens, cookies, passwords) unless the user explicitly asks to see them.
 - Never include more than $maxItems items or large raw blobs. Summarize and provide request_id references for drill‑down on demand.
@@ -907,12 +914,13 @@ Operational Guidance
       AIToolSpec('list_rewrite_rules', 'List all rewrite rules', {'type': 'object', 'properties': {}}),
       AIToolSpec('add_rewrite_rule', 'Add a rewrite rule with items', {
         'type': 'object',
-        'required': ['url_pattern', 'type', 'items'],
+        'required': ['url_pattern', 'items'],
         'properties': {
           'url_pattern': {'type': 'string'},
           'type': {
             'type': 'string',
-            'enum': RuleType.values.map((e) => e.name).toList()
+            'enum': RuleType.values.map((e) => e.name).toList(),
+            'default': 'responseUpdate'
           },
           'name': {'type': 'string'},
           'enabled': {'type': 'boolean', 'default': true},
@@ -1211,14 +1219,13 @@ Operational Guidance
         return {'ok': true, 'config': await mgr.toFullJson()};
       case 'add_rewrite_rule':
         final urlPattern = (args['url_pattern'] as String).trim();
-        final typeStr = (args['type'] as String).trim();
+        final typeStr = (args['type'] as String? ?? 'responseUpdate').trim();
         final ruleName = (args['name'] as String?)?.trim();
         final ruleEnabled = (args['enabled'] as bool?) ?? true;
         final itemsAny = (args['items'] as List?);
         if (urlPattern.isEmpty) return {'ok': false, 'error': 'url_pattern required'};
-        if (typeStr.isEmpty) return {'ok': false, 'error': 'type required'};
         if (itemsAny == null || itemsAny.isEmpty) return {'ok': false, 'error': 'items required'};
-        final type = RuleType.fromName(typeStr);
+        var type = RuleType.fromName(typeStr.isEmpty ? 'responseUpdate' : typeStr);
 
         // Normalize items to expected {enabled, type, values:{...}} shape and expand convenience fields
         String _canonType(String s, RuleType ruleType) {
@@ -1228,19 +1235,20 @@ Operational Guidance
           if (x.contains('responsestatus') || x == 'status' || x == 'setstatus' || x == 'statuscode' || x == 'setstatuscode') {
             return 'replaceResponseStatus';
           }
-          if (x.contains('responseheader') || x == 'headers' || x == 'setheader' || x == 'setheaders' || x == 'header') {
-            return isResp ? 'replaceResponseHeader' : 'replaceRequestHeader';
+          if (x.contains('responseheader') || x == 'headers' || x == 'setheader' || x == 'setheaders' || x == 'header' || x == 'updateheaders') {
+            return 'updateHeader';
           }
-          if (x.contains('responsebody') || x == 'body' || x == 'setbody' || x == 'content' || x == 'text') {
-            return isResp ? 'replaceResponseBody' : 'replaceRequestBody';
+          if (x.contains('responsebody') || x == 'body' || x == 'setbody' || x == 'content' || x == 'text' || x == 'updatebody') {
+            return 'updateBody';
           }
-          if (x.contains('requestheader')) return 'replaceRequestHeader';
-          if (x.contains('requestbody')) return 'replaceRequestBody';
+          if (x.contains('requestheader')) return 'updateHeader';
+          if (x.contains('requestbody')) return 'updateBody';
           // default by rule
-          return isResp ? 'replaceResponseBody' : 'replaceRequestBody';
+          return 'updateBody';
         }
 
         final normed = <Map<String, dynamic>>[];
+        bool wantsUpdate = false;
         for (final raw in itemsAny) {
           if (raw is! Map) continue;
           final m = Map<String, dynamic>.from(raw as Map);
@@ -1261,6 +1269,19 @@ Operational Guidance
               v[k] = m.remove(k);
             }
           }
+          // derive updateBody pattern from before/after | original/modified if present
+          if (t == 'updateBody') {
+            final before = (v['before'] ?? v['original'] ?? '') as String;
+            final after = (v['after'] ?? v['modified'] ?? '') as String;
+            final key = (v['key'] ?? '') as String;
+            final hasBA = before.trim().isNotEmpty && after.isNotEmpty;
+            if (key.trim().isEmpty && hasBA) {
+              final escaped = RegExp.escape(before);
+              v['key'] = escaped;
+              v['value'] = after;
+            }
+            if ((v['key'] as String?)?.trim().isNotEmpty == true) wantsUpdate = true;
+          }
           // aliases
           if (!v.containsKey('statusCode')) {
             if (v['status'] != null) v['statusCode'] = v['status'];
@@ -1279,30 +1300,41 @@ Operational Guidance
           m['values'] = v;
           normed.add(m);
 
-          // Expand combined convenience: split status/headers into their own items if present but type is body
-          if ((t == 'replaceResponseBody' || t == 'replaceRequestBody')) {
-            if (v['statusCode'] != null) {
-              normed.add({
-                'enabled': true,
-                'type': 'replaceResponseStatus',
-                'values': {'statusCode': v['statusCode']}
-              });
-            }
-            if (v['headers'] is Map) {
-              final headers = Map<String, String>.from(v['headers'] as Map);
-              normed.add({
-                'enabled': true,
-                'type': t == 'replaceResponseBody' ? 'replaceResponseHeader' : 'replaceRequestHeader',
-                'values': {'headers': headers}
-              });
-            }
+          // Expand combined convenience: split status/headers into their own items if present
+          if (v['statusCode'] != null) {
+            normed.add({
+              'enabled': true,
+              'type': 'replaceResponseStatus',
+              'values': {'statusCode': v['statusCode']}
+            });
           }
+          if (v['headers'] is Map) {
+            final headers = Map<String, String>.from(v['headers'] as Map);
+            // convert to updateHeader operations for each header
+            headers.forEach((hk, hv) {
+              final keyPattern = '^' + RegExp.escape(hk) + r':.*\$';
+              final newLine = '$hk: $hv';
+              normed.add({
+                'enabled': true,
+                'type': 'updateHeader',
+                'values': {'key': keyPattern, 'value': newLine}
+              });
+            });
+          }
+        }
+
+        // Force update rule type when doing body updates
+        if (wantsUpdate) {
+          type = (type == RuleType.requestReplace || type == RuleType.requestUpdate)
+              ? RuleType.requestUpdate
+              : RuleType.responseUpdate;
         }
 
         if (normed.isEmpty) return {'ok': false, 'error': 'invalid items'};
         final items = normed.map((e) => RewriteItem.fromJson(e)).toList();
+        final urlShort = Uri.tryParse(urlPattern)?.path ?? urlPattern;
         final finalName = (ruleName == null || ruleName.isEmpty)
-            ? 'AI ${type.name} @ ${DateTime.now().toIso8601String()}'
+            ? 'AI ${type.name} $urlShort @ ${DateTime.now().toIso8601String()}'
             : ruleName;
         await AITools.addRewriteRule(urlPattern: urlPattern, type: type, items: items, name: finalName, enabled: ruleEnabled);
         return {'ok': true, 'name': finalName, 'count': items.length};

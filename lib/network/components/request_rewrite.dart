@@ -126,11 +126,18 @@ class RequestRewriteInterceptor extends Interceptor {
       if (rewriteItems == null) {
         return;
       }
-
       for (var item in rewriteItems) {
-        if (item.enabled) {
-          await _updateMessage(response, item);
+        if (!item.enabled) continue;
+        // Allow status/header operations in update mode by handling special types here
+        if (item.type == RewriteType.replaceResponseStatus && item.statusCode != null) {
+          response.status = HttpStatus.valueOf(item.statusCode!);
+          continue;
         }
+        if (item.type == RewriteType.replaceResponseHeader && item.headers != null) {
+          item.headers?.forEach((key, value) => response.headers.set(key, value));
+          continue;
+        }
+        await _updateMessage(response, item);
       }
     }
   }
